@@ -33,9 +33,9 @@ variable "http_ingress_cidrs" {
   default = ["0.0.0.0/0"]
 }
 
-variable "github_repository" {
+variable "github_oidc_subject_prefix" {
   type    = string
-  default = "shohan2032/careguide-task"
+  default = "repo:shohan2032@91844548/careguide-task@1449249945"
 }
 
 variable "github_branch" {
