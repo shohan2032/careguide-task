@@ -1,0 +1,17 @@
+**/node_modules
+**/build
+**/.adonisjs
+**/tmp
+**/.env
+**/.env.*
+**/*.log
+**/.DS_Store
+.git
+.github
+.turbo
+infra
+docs
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore

@@ -1,0 +1,20 @@
+services:
+  api:
+    build:
+      context: .
+    image: careguide-task-api:local
+    container_name: careguide-task-api
+    ports:
+      - "8080:8080"
+    environment:
+      APP_KEY: ${APP_KEY:?Set APP_KEY in .env (see README)}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
