@@ -25,7 +25,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --from=prod-deps --chown=root:root /app/node_modules ./node_modules
 COPY --from=build --chown=root:root /app/apps/backend/build ./
-USER node
+USER 1000:1000
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD ["node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

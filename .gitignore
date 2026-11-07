@@ -33,3 +33,11 @@ public/assets
 
 # AdonisJS generated
 .adonisjs
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.tfvars

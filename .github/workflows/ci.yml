@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY: careguide-task-api
+  DEPLOY_COMMAND: /usr/local/bin/careguide-task-deploy
+
+jobs:
+  lint:
+    name: Lint and checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: ESLint
+        run: npm run lint --workspace @careguide-task/backend
+
+      - name: Typecheck
+        run: npm run typecheck --workspace @careguide-task/backend
+
+      - name: Hadolint
+        uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: Dockerfile
+
+      - uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive infra
+
+      - name: Terraform validate
+        working-directory: infra
+        run: terraform init -backend=false -input=false && terraform validate
+
+      - name: ShellCheck
+        run: git ls-files -z '*.sh' | xargs -0 -r shellcheck
+
+  build:
+    name: Build and push image
+    needs: lint
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: meta
+        run: echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Configure AWS credentials
+        if: github.event_name == 'push'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        if: github.event_name == 'push'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: ${{ github.event_name == 'push' }}
+          provenance: false
+          tags: ${{ github.event_name == 'push' && format('{0}/{1}:{2}', steps.ecr.outputs.registry, env.ECR_REPOSITORY, steps.meta.outputs.tag) || format('{0}:{1}', env.ECR_REPOSITORY, steps.meta.outputs.tag) }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to EC2
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy via SSM
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          command_id=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy $IMAGE_TAG" \
+            --parameters "commands=[\"$DEPLOY_COMMAND $IMAGE_TAG\"]" \
+            --query Command.CommandId --output text)
+
+          aws ssm wait command-executed --command-id "$command_id" --instance-id "$INSTANCE_ID" || true
+
+          aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+            --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' --output yaml
+
+          status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --query Status --output text)
+          [ "$status" = "Success" ]
+
+      - name: Smoke test
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          body=$(curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "$APP_URL")
+          echo "$body"
+          echo "$body" | jq -e '.status == "running"'
