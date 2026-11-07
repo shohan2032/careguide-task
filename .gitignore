@@ -39,6 +39,7 @@ public/assets
 *.tfstate
 *.tfstate.*
 *.tfplan
+tfplan
 crash.log
 *.tfvars
 
