@@ -1,0 +1,50 @@
+#!/bin/bash
+set -euo pipefail
+
+dnf update -y
+dnf install -y docker
+systemctl enable --now docker
+
+cat > /etc/docker/daemon.json <<'JSON'
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "no-new-privileges": true,
+  "live-restore": true
+}
+JSON
+systemctl restart docker
+
+cat > ${deploy_command} <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+tag="$1"
+image="${repository_url}:$tag"
+env_file="$(mktemp /run/app-env.XXXXXX)"
+trap 'rm -f "$env_file"; docker logout ${registry} >/dev/null 2>&1 || true' EXIT
+
+aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${registry}
+docker pull "$image"
+
+printf 'APP_KEY=%s\n' "$(aws ssm get-parameter --region ${region} --name ${app_key_param} --with-decryption --query Parameter.Value --output text)" > "$env_file"
+
+docker rm -f ${container_name} >/dev/null 2>&1 || true
+docker run -d \
+  --name ${container_name} \
+  --restart unless-stopped \
+  --init \
+  --read-only \
+  --tmpfs /tmp \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --memory 512m \
+  --pids-limit 256 \
+  --env-file "$env_file" \
+  -p 80:8080 \
+  "$image"
+
+docker image prune -af >/dev/null
+SCRIPT
+
+chmod 0750 ${deploy_command}
