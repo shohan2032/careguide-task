@@ -41,3 +41,6 @@ public/assets
 *.tfplan
 crash.log
 *.tfvars
+
+# Health script output
+health_log.txt
