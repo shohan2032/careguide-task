@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "A batteries-included AdonisJS starter kit for building modern APIs with type-safe frontend integration",
+  "description": "Containerized AdonisJS API for the CareGuide DevOps task",
   "license": "MIT",
   "workspaces": [
     "apps/*"
@@ -28,7 +28,6 @@
   "packageManager": "npm@11.12.1",
   "allowScripts": {
     "@swc/core": true,
-    "better-sqlite3": true,
     "esbuild": true,
     "fsevents": true
   },
